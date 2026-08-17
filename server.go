@@ -1,14 +1,14 @@
 package main
 
 import (
+	"boot.dev/linko/internal/store"
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
-
-	"boot.dev/linko/internal/store"
 )
 
 type server struct {
@@ -48,7 +48,7 @@ func (s *server) start() error {
 		return err
 	}
 	tcpAddr := ln.Addr().(*net.TCPAddr)
-	fmt.Printf("Linko is running on http://localhost:%d\n", tcpAddr.Port)
+	log.Printf("Linko is running on http://localhost:%d", tcpAddr.Port)
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
