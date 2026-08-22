@@ -26,7 +26,6 @@ func Test_requestLogger(t *testing.T) {
 	loggedHandler := requestLoggerMiddleware(dummyHandler)
 
 	req := httptest.NewRequest("GET", "http://lin.ko/api/stats", nil)
-	req.RemoteAddr = "192.0.2.1:1234"
 	rr := httptest.NewRecorder()
 	loggedHandler.ServeHTTP(rr, req)
 
