@@ -34,7 +34,7 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 			return nil, nil, err
 		}
 		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
-		infoHandler := slog.NewTextHandler(file, &slog.HandlerOptions{Level: slog.LevelInfo})
+		infoHandler := slog.NewJSONHandler(file, &slog.HandlerOptions{Level: slog.LevelInfo})
 		multiHandler := slog.NewMultiHandler(debugHandler, infoHandler)
 		return slog.New(multiHandler), func() error {
 			return file.Close()
