@@ -1,6 +1,7 @@
 package main
 
 import (
+	"boot.dev/linko/internal/store"
 	"context"
 	"flag"
 	"fmt"
@@ -9,8 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"boot.dev/linko/internal/store"
 )
 
 func main() {
@@ -33,14 +32,31 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
-		infoHandler := slog.NewJSONHandler(file, &slog.HandlerOptions{Level: slog.LevelInfo})
+		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level:       slog.LevelDebug,
+			ReplaceAttr: replaceAttr,
+		})
+		infoHandler := slog.NewJSONHandler(file, &slog.HandlerOptions{
+			Level:       slog.LevelInfo,
+			ReplaceAttr: replaceAttr,
+		})
 		multiHandler := slog.NewMultiHandler(debugHandler, infoHandler)
 		return slog.New(multiHandler), func() error {
 			return file.Close()
 		}, nil
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, nil)), func() error { return nil }, nil
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: replaceAttr})), func() error { return nil }, nil
+}
+
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if a.Key == "error" {
+		err, ok := a.Value.Any().(error)
+		if !ok {
+			return a
+		}
+		return slog.String("error", fmt.Sprintf("%+v", err))
+	}
+	return a
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
