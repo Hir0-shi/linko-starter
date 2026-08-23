@@ -3,8 +3,10 @@ package main
 import (
 	"boot.dev/linko/internal/store"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	pkgerr "github.com/pkg/errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,6 +27,11 @@ func main() {
 }
 
 type closeFunc func() error
+
+type stackTracer interface {
+	error
+	StackTrace() pkgerr.StackTrace
+}
 
 func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	if logFile != "" {
@@ -54,7 +61,13 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 		if !ok {
 			return a
 		}
-		return slog.String("error", fmt.Sprintf("%+v", err))
+		if tracer, ok := errors.AsType[stackTracer](err); ok {
+			return slog.GroupAttrs("error",
+				slog.String("message", err.Error()),
+				slog.String("stack_trace", fmt.Sprintf("%+v", tracer.StackTrace())),
+			)
+		}
+		return slog.String("error", err.Error())
 	}
 	return a
 }
