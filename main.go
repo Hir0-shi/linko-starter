@@ -1,18 +1,19 @@
 package main
 
 import (
-	"boot.dev/linko/internal/linkoerr"
-	"boot.dev/linko/internal/store"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	pkgerr "github.com/pkg/errors"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"boot.dev/linko/internal/linkoerr"
+	"boot.dev/linko/internal/store"
+	pkgerr "github.com/pkg/errors"
 )
 
 func main() {
@@ -32,6 +33,11 @@ type closeFunc func() error
 type stackTracer interface {
 	error
 	StackTrace() pkgerr.StackTrace
+}
+
+type multiError interface {
+	error
+	Unwrap() []error
 }
 
 func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
@@ -56,6 +62,18 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: replaceAttr})), func() error { return nil }, nil
 }
 
+func errorAttrs(err error) []slog.Attr {
+	attrs := []slog.Attr{
+		slog.String("message", err.Error()),
+	}
+	attrs = append(attrs, linkoerr.Attrs(err)...)
+
+	if tracer, ok := errors.AsType[stackTracer](err); ok {
+		attrs = append(attrs, slog.String("stack_trace", fmt.Sprintf("%+v", tracer.StackTrace())))
+	}
+	return attrs
+}
+
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
@@ -63,16 +81,17 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 			return a
 		}
 
-		attrs := []slog.Attr{
-			slog.String("message", err.Error()),
+		if me, ok := errors.AsType[multiError](err); ok {
+			var errAttrs []slog.Attr
+			for i, e := range me.Unwrap() {
+				errAttrs = append(errAttrs, slog.GroupAttrs(
+					fmt.Sprintf("error_%d", i+1), errorAttrs(e)...,
+				))
+			}
+			return slog.GroupAttrs("errors", errAttrs...)
 		}
 
-		attrs = append(attrs, linkoerr.Attrs(err)...)
-
-		if tracer, ok := errors.AsType[stackTracer](err); ok {
-			attrs = append(attrs, slog.String("stack_trace", fmt.Sprintf("%+v", tracer.StackTrace())))
-		}
-		return slog.GroupAttrs("error", attrs...)
+		return slog.GroupAttrs("error", errorAttrs(err)...)
 	}
 	return a
 }
