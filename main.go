@@ -1,19 +1,19 @@
 package main
 
 import (
+	"boot.dev/linko/internal/build"
+	"boot.dev/linko/internal/linkoerr"
+	"boot.dev/linko/internal/store"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	pkgerr "github.com/pkg/errors"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"boot.dev/linko/internal/linkoerr"
-	"boot.dev/linko/internal/store"
-	pkgerr "github.com/pkg/errors"
 )
 
 func main() {
@@ -46,6 +46,7 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelDebug,
 			ReplaceAttr: replaceAttr,
@@ -55,11 +56,19 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 			ReplaceAttr: replaceAttr,
 		})
 		multiHandler := slog.NewMultiHandler(debugHandler, infoHandler)
-		return slog.New(multiHandler), func() error {
+		logger := slog.New(multiHandler).With(
+			slog.String("git_sha", build.GitSHA),
+			slog.String("build_time", build.BuildTime),
+		)
+		return logger, func() error {
 			return file.Close()
 		}, nil
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: replaceAttr})), func() error { return nil }, nil
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: replaceAttr})).With(
+		slog.String("git_sha", build.GitSHA),
+		slog.String("build_time", build.BuildTime),
+	)
+	return logger, func() error { return nil }, nil
 }
 
 func errorAttrs(err error) []slog.Attr {
