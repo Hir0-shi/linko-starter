@@ -4,6 +4,7 @@ import (
 	"boot.dev/linko/internal/build"
 	"boot.dev/linko/internal/linkoerr"
 	"boot.dev/linko/internal/store"
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -41,34 +42,49 @@ type multiError interface {
 }
 
 func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
+	// setup default console stderr handler (debug level)
+	handlers := []slog.Handler{
+		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level:       slog.LevelDebug,
+			ReplaceAttr: replaceAttr,
+		}),
+	}
+	closers := []closeFunc{}
+
+	// optionally setup structured file output (info level)
 	if logFile != "" {
 		file, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("failed to open log file: %w", err)
 		}
-
-		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level:       slog.LevelDebug,
-			ReplaceAttr: replaceAttr,
-		})
-		infoHandler := slog.NewJSONHandler(file, &slog.HandlerOptions{
+		bufferedFile := bufio.NewWriterSize(file, 8192)
+		close := func() error {
+			if err := bufferedFile.Flush(); err != nil {
+				return fmt.Errorf("failed to flush log file: %w", err)
+			}
+			if err := file.Close(); err != nil {
+				return fmt.Errorf("failed to close log file: %w", err)
+			}
+			return nil
+		}
+		handlers = append(handlers, slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
 			ReplaceAttr: replaceAttr,
-		})
-		multiHandler := slog.NewMultiHandler(debugHandler, infoHandler)
-		logger := slog.New(multiHandler).With(
-			slog.String("git_sha", build.GitSHA),
-			slog.String("build_time", build.BuildTime),
-		)
-		return logger, func() error {
-			return file.Close()
-		}, nil
+		}))
+		closers = append(closers, close)
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: replaceAttr})).With(
-		slog.String("git_sha", build.GitSHA),
-		slog.String("build_time", build.BuildTime),
-	)
-	return logger, func() error { return nil }, nil
+
+	closer := func() error {
+		var errs []error
+		for _, close := range closers {
+			if err := close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+
+	return slog.New(slog.NewMultiHandler(handlers...)), closer, nil
 }
 
 func errorAttrs(err error) []slog.Attr {
@@ -117,6 +133,18 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 			fmt.Fprintf(os.Stderr, "failed to close logger: %v\n", err)
 		}
 	}()
+
+	// query host runtime details
+	hostname, _ := os.Hostname()
+
+	// decorate the base logger with build and runtime instance attributes
+	logger = logger.With(
+		slog.String("git_sha", build.GitSHA),
+		slog.String("build_time", build.BuildTime),
+		slog.String("env", os.Getenv("ENV")),
+		slog.String("hostname", hostname),
+	)
+
 	st, err := store.New(dataDir, logger)
 	if err != nil {
 		logger.Error("failed to create store", "error", err)
