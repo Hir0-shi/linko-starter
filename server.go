@@ -56,7 +56,7 @@ func newServer(store store.Store, port int, cancel context.CancelFunc, logger *s
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: requestLogger(logger)(mux),
+		Handler: requestID()(requestLogger(logger)(mux)),
 	}
 
 	s := &server{
@@ -133,6 +133,9 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			}
 			if logCtx.Error != nil {
 				attrs = append(attrs, "error", logCtx.Error)
+			}
+			if requestID := r.Header.Get("X-Request-ID"); requestID != "" {
+				attrs = append(attrs, "request_id", requestID)
 			}
 			logger.Info("Served request", attrs...)
 		})
