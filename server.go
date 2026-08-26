@@ -120,22 +120,20 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			// composite literal
 			attrs := []any{
-				"method", r.Method,
-				"path", r.URL.Path,
-				"client_ip", r.RemoteAddr,
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("client_ip", r.RemoteAddr),
 				slog.Duration("duration", time.Since(start)),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
 				slog.Int("response_body_bytes", spyWriter.bytesWritten),
+				slog.String("request_id", spyWriter.Header().Get("X-Request-ID")),
 			}
 			if logCtx.Username != "" {
-				attrs = append(attrs, "user", logCtx.Username)
+				attrs = append(attrs, slog.String("user", logCtx.Username))
 			}
 			if logCtx.Error != nil {
-				attrs = append(attrs, "error", logCtx.Error)
-			}
-			if requestID := r.Header.Get("X-Request-ID"); requestID != "" {
-				attrs = append(attrs, "request_id", requestID)
+				attrs = append(attrs, slog.Any("error", logCtx.Error))
 			}
 			logger.Info("Served request", attrs...)
 		})

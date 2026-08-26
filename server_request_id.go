@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 )
 
@@ -12,9 +11,7 @@ func requestID() func(http.Handler) http.Handler {
 			id := r.Header.Get("X-Request-ID")
 
 			if id == "" {
-				b := make([]byte, 16)
-				rand.Read(b)
-				id = hex.EncodeToString(b)
+				id = rand.Text()
 			}
 
 			w.Header().Set("X-Request-ID", id)
