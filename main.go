@@ -1,20 +1,24 @@
 package main
 
 import (
-	"boot.dev/linko/internal/build"
-	"boot.dev/linko/internal/linkoerr"
-	"boot.dev/linko/internal/store"
 	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	pkgerr "github.com/pkg/errors"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	// Third-party packages
+	"boot.dev/linko/internal/build"
+	"boot.dev/linko/internal/linkoerr"
+	"boot.dev/linko/internal/store"
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
+	pkgerr "github.com/pkg/errors"
 )
 
 func main() {
@@ -44,9 +48,10 @@ type multiError interface {
 func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	// setup default console stderr handler (debug level)
 	handlers := []slog.Handler{
-		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		tint.NewTextHandler(os.Stderr, &tint.Options{
 			Level:       slog.LevelDebug,
 			ReplaceAttr: replaceAttr,
+			NoColor:     !(isatty.IsCygwinTerminal(os.Stderr.Fd()) || isatty.IsTerminal(os.Stderr.Fd())),
 		}),
 	}
 	closers := []closeFunc{}
