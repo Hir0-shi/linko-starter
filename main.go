@@ -6,11 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
-
 	// Third-party packages
 	"boot.dev/linko/internal/build"
 	"boot.dev/linko/internal/linkoerr"
@@ -44,6 +45,8 @@ type multiError interface {
 	error
 	Unwrap() []error
 }
+
+var sensitiveKeys = []string{"password", "key", "apikey", "secret", "pin", "creditcardno", "user"}
 
 func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	// setup default console stderr handler (debug level)
@@ -97,6 +100,18 @@ func errorAttrs(err error) []slog.Attr {
 }
 
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	// redact sensitive keys
+	if slices.Contains(sensitiveKeys, a.Key) {
+		return slog.String(a.Key, "[REDACTED]")
+	}
+	// redact embedded passwords in url string values
+	if val, ok := a.Value.Any().(string); ok {
+		if u, err := url.Parse(val); err == nil && u.User != nil {
+			u.User = url.User("[REDACTED]")
+			a = slog.String(a.Key, u.String())
+		}
+	}
+
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
 		if !ok {
