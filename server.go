@@ -103,6 +103,25 @@ func (s *server) handlerShutdown(w http.ResponseWriter, r *http.Request) {
 	go s.cancel()
 }
 
+func redactIP(addr string) string {
+	// split host:port
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	// parse the ip
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return host // safety: unparseable input
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return ip.String()
+	}
+	// if ip4 return last octet replacement
+	return fmt.Sprintf("%d.%d.%d.x", ip4[0], ip4[1], ip4[2])
+}
+
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +141,8 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
-				slog.String("client_ip", r.RemoteAddr),
+				// add obfuscaton ipv4
+				slog.String("client_ip", redactIP(r.RemoteAddr)),
 				slog.Duration("duration", time.Since(start)),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
