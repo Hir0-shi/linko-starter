@@ -9,9 +9,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
-
+	// external
 	"boot.dev/linko/internal/store"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -26,6 +29,14 @@ type spyReadCloser struct {
 	io.ReadCloser
 	bytesRead int
 }
+
+var httpRequestsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "http_requests_total",
+		Help: "Total number of HTTP requests.",
+	},
+	[]string{"method", "path", "status"},
+)
 
 func (r *spyReadCloser) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
@@ -53,12 +64,41 @@ func (w *spyResponseWriter) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{
+			ResponseWriter: w,
+			status:         http.StatusOK,
+		}
+
+		next.ServeHTTP(rec, r)
+
+		path := r.URL.Path
+		method := r.Method
+		status := strconv.Itoa(rec.status)
+
+		httpRequestsTotal.
+			WithLabelValues(method, path, status).
+			Inc()
+	})
+}
+
 func newServer(store store.Store, port int, cancel context.CancelFunc, logger *slog.Logger) *server {
 	mux := http.NewServeMux()
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: requestID()(requestLogger(logger)(mux)),
+		Handler: metricsMiddleware(requestID()(requestLogger(logger)(mux))),
 	}
 
 	s := &server{
@@ -161,3 +201,5 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+
