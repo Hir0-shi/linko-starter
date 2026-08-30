@@ -19,6 +19,10 @@ import (
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -133,7 +137,35 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	return a
 }
 
+func initTracing(ctx context.Context) (func(context.Context) error, error) {
+	exp, err := otlptracegrpc.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp,
+			sdktrace.WithBatchTimeout(2*time.Second),
+		),
+		sdktrace.WithResource(resource.Default()),
+	)
+
+	otel.SetTracerProvider(tp)
+	return tp.Shutdown, nil
+}
+
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
+	shutdownTracing, err := initTracing(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to init tracing: %v\n", err)
+		return 1
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to shutdown tracing %v\n", err)
+		}
+	}()
+
 	logFile := os.Getenv("LINKO_LOG_FILE")
 	logger, closeLogger, err := initializeLogger(logFile)
 	if err != nil {
